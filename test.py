@@ -1,6 +1,17 @@
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit.processor import IndicProcessor
+import os
+
+# Define model revisions and cache directory
+MODEL_REVISIONS = {
+    "ai4bharat/indictrans2-en-indic-1B": "v1.0.0",
+    "ai4bharat/indictrans2-indic-en-1B": "v1.0.0", 
+    "ai4bharat/indictrans2-indic-indic-1B": "v1.0.0"
+}
+
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "model_cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Cache for loaded models and tokenizers
 _models = {}
@@ -9,8 +20,18 @@ _tokenizers = {}
 def get_model_and_tokenizer(model_name):
     """Load and cache model and tokenizer"""
     if model_name not in _models:
-        _tokenizers[model_name] = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True)
+        _tokenizers[model_name] = AutoTokenizer.from_pretrained(
+            model_name,
+            trust_remote_code=True,
+            revision=MODEL_REVISIONS[model_name],
+            cache_dir=CACHE_DIR
+        )
+        _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
+            model_name, 
+            trust_remote_code=True,
+            revision=MODEL_REVISIONS[model_name],
+            cache_dir=CACHE_DIR
+        )
         if torch.cuda.is_available():
             _models[model_name] = _models[model_name].to("cuda")
     return _models[model_name], _tokenizers[model_name]
