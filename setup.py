@@ -8,7 +8,7 @@ setup(
         "torch",
         "transformers",
         "sentencepiece",
-        "indic-nlp-library-IT2 @ git+https://github.com/VarunGumma/indic_nlp_library.git",
+        "indic-nlp-library-IT2 @ git+https://github.com/Finsocial123/multi_lang_nlp_lib.git",
     ],
     python_requires=">=3.8",
 )
