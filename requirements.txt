@@ -76,7 +76,6 @@ tzdata==2025.1
 uctools==1.3.0
 urllib3==2.3.0
 uvicorn==0.15.0
-xformers==0.0.29.post3
 
 IndicTransToolkit @ git+https://github.com/VarunGumma/IndicTransToolkit.git
 indic_nlp_library_IT2 @ git+https://github.com/VarunGumma/indic_nlp_library.git@342a7e95735e88949528bdca371518cb0ba5bb5d
