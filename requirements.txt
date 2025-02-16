@@ -40,7 +40,7 @@ Pygments==2.19.1
 python-dateutil==2.9.0.post0
 python-git==2018.2.1
 pytz==2025.1
-pywin32==308
+pywin32
 PyYAML==6.0.2
 regex==2024.11.6
 requests==2.32.3
