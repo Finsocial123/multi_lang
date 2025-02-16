@@ -1,6 +1,6 @@
 fastapi==0.68.1
 uvicorn==0.15.0
-numpy==1.21.6
+numpy>=1.24.0
 torch==2.1.0
 transformers==4.35.0
 IndicTransToolkit @ git+https://github.com/VarunGumma/IndicTransToolkit.git
