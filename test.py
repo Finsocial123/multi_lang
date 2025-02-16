@@ -3,11 +3,11 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit.processor import IndicProcessor
 import os
 
-# Define model revisions and cache directory
-MODEL_REVISIONS = {
-    "ai4bharat/indictrans2-en-indic-1B": "v1.0.0",
-    "ai4bharat/indictrans2-indic-en-1B": "v1.0.0", 
-    "ai4bharat/indictrans2-indic-indic-1B": "v1.0.0"
+# Define model paths and cache directory
+MODEL_PATHS = {
+    "ai4bharat/indictrans2-en-indic-1B": "indictrans2-en-indic-1B",
+    "ai4bharat/indictrans2-indic-en-1B": "indictrans2-indic-en-1B",
+    "ai4bharat/indictrans2-indic-indic-1B": "indictrans2-indic-indic-1B"
 }
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "model_cache")
@@ -17,23 +17,35 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 _models = {}
 _tokenizers = {}
 
+def model_exists(model_name):
+    """Check if model files already exist in cache"""
+    model_path = os.path.join(CACHE_DIR, MODEL_PATHS[model_name])
+    return os.path.exists(model_path)
+
 def get_model_and_tokenizer(model_name):
     """Load and cache model and tokenizer"""
     if model_name not in _models:
+        print(f"Loading model: {model_name}")
+        
+        if model_exists(model_name):
+            print(f"Using cached model from {CACHE_DIR}")
+        else:
+            print(f"Downloading model to {CACHE_DIR}")
+            
         _tokenizers[model_name] = AutoTokenizer.from_pretrained(
             model_name,
             trust_remote_code=True,
-            revision=MODEL_REVISIONS[model_name],
             cache_dir=CACHE_DIR
         )
         _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
             model_name, 
             trust_remote_code=True,
-            revision=MODEL_REVISIONS[model_name],
             cache_dir=CACHE_DIR
         )
         if torch.cuda.is_available():
             _models[model_name] = _models[model_name].to("cuda")
+            
+        print(f"Model loaded successfully")
     return _models[model_name], _tokenizers[model_name]
 
 def translate_text(input_text, source_lang, target_lang):
