@@ -16,6 +16,6 @@ huggingface-hub==0.28.1
 idna==3.10
 imagesize==1.4.1
 indic-nlp-library==0.92
-indic_nlp_library_IT2 @ git+https://github.com/Finsocial123/multi_lang_nlp_lib.git
-IndicTransToolkit @ git+https://github.com/Finsocial123/Multi_lang_IndicTransToolkit.git
+indic_nlp_library_IT2 @ git+https://github.com/VarunGumma/indic_nlp_library.git
+IndicTransToolkit @ git+https://github.com/VarunGumma/IndicTransToolkit.git
 uvicorn==0.15.0
