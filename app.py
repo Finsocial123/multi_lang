@@ -1,8 +1,22 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.security.api_key import APIKeyHeader, APIKey
 from pydantic import BaseModel
 from test import translate_text
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
+import os
+
+API_KEY = "hindAilanguageTransl@tor!token"  # Replace with your actual API key
+API_KEY_NAME = "hindi_ai_api_key"
+
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if not api_key_header:
+        raise HTTPException(status_code=403, detail="API Key missing")
+    if api_key_header != API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API Key")
+    return api_key_header
 
 app = FastAPI(
     title="Language Translation API",
@@ -24,9 +38,9 @@ Supported Languages:
 - Telugu (tel_Telu)
 - Urdu (urd_Arab)
 - Assamese (asm_Beng)
-- Kashmiri (kas_Arab/kas_Deva)
-- Manipuri/Meitei (mni_Mtei/mni_Beng)
-- Sindhi (snd_Arab/snd_Deva)""",
+- Kashmiri (kas_Arab)
+- Manipuri/Meitei (mni_Mtei)
+- Sindhi (snd_Arab)""",
     version="1.0.0"
 )
 
@@ -50,7 +64,7 @@ class TranslationResponse(BaseModel):
     target_lang: str
 
 @app.post("/translate/", response_model=TranslationResponse)
-async def translate(request: TranslationRequest):
+async def translate(request: TranslationRequest, api_key: APIKey = Depends(get_api_key)):
     try:
         translated = translate_text(
             request.text,
@@ -65,10 +79,6 @@ async def translate(request: TranslationRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
 
 
 if __name__ == "__main__":
