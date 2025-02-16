@@ -18,4 +18,4 @@ imagesize==1.4.1
 indic-nlp-library==0.92
 indic_nlp_library_IT2 @ git+https://github.com/VarunGumma/indic_nlp_library.git
 IndicTransToolkit @ git+https://github.com/VarunGumma/IndicTransToolkit.git
-
+torch 
