@@ -1,4 +1,3 @@
-pip install torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from test import translate_text
