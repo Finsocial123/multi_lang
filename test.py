@@ -48,13 +48,14 @@ def get_model_and_tokenizer(model_name):
         print(f"Model loaded successfully")
     return _models[model_name], _tokenizers[model_name]
 
-def translate_text(input_text, source_lang, target_lang):
+def translate_text(input_text, source_lang, target_lang, max_length=10000000):  # Added max_length parameter
     """
     Translates text from source language to target language.
     Args:
         input_text (str): Input text to translate
         source_lang (str): Source language code (e.g., "hin_Deva", "eng_Latn")
         target_lang (str): Target language code (e.g., "eng_Latn", "hin_Deva")
+        max_length (int, optional): Maximum length for input and output text. Defaults to 1024.
     Returns:
         str: Translated text
     """
@@ -71,15 +72,29 @@ def translate_text(input_text, source_lang, target_lang):
     # Process input
     batch = processor.preprocess_batch([input_text], src_lang=source_lang, tgt_lang=target_lang)
     
-    # Tokenize
-    inputs = tokenizer(batch, truncation=True, padding=True, return_tensors="pt")
+    # Tokenize with max_length
+    inputs = tokenizer(
+        batch, 
+        truncation=True, 
+        padding=True, 
+        return_tensors="pt",
+        max_length=max_length
+    )
     
     if torch.cuda.is_available():
         inputs = inputs.to("cuda")
     
-    # Generate translation
+    # Generate translation with max_length
     with torch.no_grad():
-        outputs = model.generate(**inputs, num_beams=5)
+        outputs = model.generate(
+            **inputs,
+            num_beams=5,
+            max_length=max_length,
+            max_new_tokens=max_length,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            use_cache=True
+        )
     
     # Decode translation
     with tokenizer.as_target_tokenizer():
