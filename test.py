@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit.processor import IndicProcessor
