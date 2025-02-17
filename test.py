@@ -2,6 +2,7 @@ import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit.processor import IndicProcessor
 import os
+import gc
 
 # Define model paths and cache directory
 MODEL_PATHS = {
@@ -17,91 +18,129 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 _models = {}
 _tokenizers = {}
 
-def model_exists(model_name):
-    """Check if model files already exist in cache"""
-    model_path = os.path.join(CACHE_DIR, MODEL_PATHS[model_name])
-    return os.path.exists(model_path)
+def clear_cuda_cache():
+    """Clear CUDA cache and garbage collect"""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
 
 def get_model_and_tokenizer(model_name):
     """Load and cache model and tokenizer"""
-    if model_name not in _models:
-        print(f"Loading model: {model_name}")
-        
-        if model_exists(model_name):
-            print(f"Using cached model from {CACHE_DIR}")
-        else:
-            print(f"Downloading model to {CACHE_DIR}")
+    try:
+        if model_name not in _models:
+            clear_cuda_cache()  # Clear cache before loading new model
             
-        _tokenizers[model_name] = AutoTokenizer.from_pretrained(
-            model_name,
-            trust_remote_code=True,
-            cache_dir=CACHE_DIR
-        )
-        _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
-            model_name, 
-            trust_remote_code=True,
-            cache_dir=CACHE_DIR
-        )
-        if torch.cuda.is_available():
-            _models[model_name] = _models[model_name].to("cuda")
+            # Load tokenizer first
+            if model_name not in _tokenizers:
+                _tokenizers[model_name] = AutoTokenizer.from_pretrained(
+                    model_name,
+                    trust_remote_code=True,
+                    cache_dir=CACHE_DIR,
+                    local_files_only=True  # Try to load from cache first
+                )
             
-        print(f"Model loaded successfully")
-    return _models[model_name], _tokenizers[model_name]
+            # Then load model
+            try:
+                # First try loading from cache
+                _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
+                    model_name,
+                    trust_remote_code=True,
+                    cache_dir=CACHE_DIR,
+                    local_files_only=True
+                )
+            except Exception:
+                # If not in cache, download and save
+                print(f"Downloading model {model_name} to {CACHE_DIR}")
+                _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
+                    model_name,
+                    trust_remote_code=True,
+                    cache_dir=CACHE_DIR
+                )
+            
+            if torch.cuda.is_available():
+                _models[model_name] = _models[model_name].to("cuda")
+                
+        return _models[model_name], _tokenizers[model_name]
+    
+    except Exception as e:
+        clear_cuda_cache()
+        raise Exception(f"Error loading model: {str(e)}")
 
-def translate_text(input_text, source_lang, target_lang, max_length=10000000):  # Added max_length parameter
+def translate_text(input_text, source_lang, target_lang, max_length=512):  # Reduced default max_length
     """
     Translates text from source language to target language.
-    Args:
-        input_text (str): Input text to translate
-        source_lang (str): Source language code (e.g., "hin_Deva", "eng_Latn")
-        target_lang (str): Target language code (e.g., "eng_Latn", "hin_Deva")
-        max_length (int, optional): Maximum length for input and output text. Defaults to 1024.
-    Returns:
-        str: Translated text
     """
-    # Select appropriate model based on language direction
-    if source_lang == "eng_Latn":
-        model_name = "ai4bharat/indictrans2-en-indic-1B"
-    else:
-        model_name = "ai4bharat/indictrans2-indic-en-1B" if target_lang == "eng_Latn" else "ai4bharat/indictrans2-indic-indic-1B"
-    
-    # Get or load model and tokenizer
-    model, tokenizer = get_model_and_tokenizer(model_name)
-    processor = IndicProcessor(inference=True)
-    
-    # Process input
-    batch = processor.preprocess_batch([input_text], src_lang=source_lang, tgt_lang=target_lang)
-    
-    # Tokenize with max_length
-    inputs = tokenizer(
-        batch, 
-        truncation=True, 
-        padding=True, 
-        return_tensors="pt",
-        max_length=max_length
-    )
-    
-    if torch.cuda.is_available():
-        inputs = inputs.to("cuda")
-    
-    # Generate translation with max_length
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            num_beams=5,
-            max_length=max_length,
-            max_new_tokens=max_length,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            use_cache=True
-        )
-    
-    # Decode translation
-    with tokenizer.as_target_tokenizer():
-        translated = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-    
-    # Post-process
-    return processor.postprocess_batch([translated], lang=target_lang)[0]
+    try:
+        # Select appropriate model based on language direction
+        if source_lang == "eng_Latn":
+            model_name = "ai4bharat/indictrans2-en-indic-1B"
+        else:
+            model_name = "ai4bharat/indictrans2-indic-en-1B" if target_lang == "eng_Latn" else "ai4bharat/indictrans2-indic-indic-1B"
+        
+        # Get or load model and tokenizer
+        model, tokenizer = get_model_and_tokenizer(model_name)
+        processor = IndicProcessor(inference=True)
+        
+        # Process input in chunks if too long
+        if len(input_text) > max_length:
+            # Simple sentence splitting
+            sentences = input_text.split('।' if source_lang != 'eng_Latn' else '.')
+            chunks = []
+            current_chunk = ''
+            
+            for sentence in sentences:
+                if len(current_chunk) + len(sentence) < max_length:
+                    current_chunk += sentence + ('।' if source_lang != 'eng_Latn' else '.')
+                else:
+                    if current_chunk:
+                        chunks.append(current_chunk)
+                    current_chunk = sentence + ('।' if source_lang != 'eng_Latn' else '.')
+            if current_chunk:
+                chunks.append(current_chunk)
+        else:
+            chunks = [input_text]
+        
+        translated_chunks = []
+        for chunk in chunks:
+            # Process chunk
+            batch = processor.preprocess_batch([chunk], src_lang=source_lang, tgt_lang=target_lang)
+            
+            # Tokenize
+            inputs = tokenizer(
+                batch,
+                truncation=True,
+                padding=True,
+                return_tensors="pt",
+                max_length=max_length
+            )
+            
+            if torch.cuda.is_available():
+                inputs = inputs.to("cuda")
+            
+            # Generate translation
+            with torch.no_grad():
+                outputs = model.generate(
+                    **inputs,
+                    num_beams=5,
+                    max_length=max_length,
+                    pad_token_id=tokenizer.pad_token_id,
+                    eos_token_id=tokenizer.eos_token_id
+                )
+            
+            # Decode translation
+            with tokenizer.as_target_tokenizer():
+                translated = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+                translated_chunks.append(translated)
+            
+            clear_cuda_cache()  # Clear cache after each chunk
+        
+        # Join chunks and post-process
+        final_translation = ' '.join(translated_chunks)
+        return processor.postprocess_batch([final_translation], lang=target_lang)[0]
+        
+    except Exception as e:
+        clear_cuda_cache()
+        raise Exception(f"Translation error: {str(e)}")
 
 if __name__ == "__main__":
     # Example usage
