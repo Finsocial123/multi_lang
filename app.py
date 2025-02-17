@@ -57,6 +57,7 @@ class TranslationRequest(BaseModel):
     text: str
     source_lang: str
     target_lang: str
+    max_length: Optional[int] = 1024  # Added max_length with default value
 
 class TranslationResponse(BaseModel):
     translated_text: str
@@ -69,7 +70,8 @@ async def translate(request: TranslationRequest, api_key: APIKey = Depends(get_a
         translated = translate_text(
             request.text,
             request.source_lang,
-            request.target_lang
+            request.target_lang,
+            max_length=request.max_length
         )
         
         return TranslationResponse(
@@ -79,8 +81,6 @@ async def translate(request: TranslationRequest, api_key: APIKey = Depends(get_a
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
