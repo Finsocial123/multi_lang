@@ -4,11 +4,20 @@ from IndicTransToolkit.processor import IndicProcessor
 import os
 import gc
 
-# Define model paths and cache directory
-MODEL_PATHS = {
-    "ai4bharat/indictrans2-en-indic-1B": "indictrans2-en-indic-1B",
-    "ai4bharat/indictrans2-indic-en-1B": "indictrans2-indic-en-1B",
-    "ai4bharat/indictrans2-indic-indic-1B": "indictrans2-indic-indic-1B"
+# Define model paths and required files
+MODEL_CONFIGS = {
+    "ai4bharat/indictrans2-en-indic-1B": {
+        "dir": "indictrans2-en-indic-1B",
+        "files": ["config.json", "pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
+    },
+    "ai4bharat/indictrans2-indic-en-1B": {
+        "dir": "indictrans2-indic-en-1B",
+        "files": ["config.json", "pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
+    },
+    "ai4bharat/indictrans2-indic-indic-1B": {
+        "dir": "indictrans2-indic-indic-1B",
+        "files": ["config.json", "pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
+    }
 }
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "model_cache")
@@ -17,6 +26,17 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 # Cache for loaded models and tokenizers
 _models = {}
 _tokenizers = {}
+
+def is_model_cached(model_name):
+    """Check if all required model files exist in cache"""
+    model_dir = os.path.join(CACHE_DIR, MODEL_CONFIGS[model_name]["dir"])
+    if not os.path.exists(model_dir):
+        return False
+    
+    for file in MODEL_CONFIGS[model_name]["files"]:
+        if not os.path.exists(os.path.join(model_dir, file)):
+            return False
+    return True
 
 def clear_cuda_cache():
     """Clear CUDA cache and garbage collect"""
@@ -30,32 +50,40 @@ def get_model_and_tokenizer(model_name):
         if model_name not in _models:
             clear_cuda_cache()  # Clear cache before loading new model
             
-            # Load tokenizer first
-            if model_name not in _tokenizers:
+            if is_model_cached(model_name):
+                print(f"Loading model from cache: {CACHE_DIR}")
+                # Load from cache
+                try:
+                    _tokenizers[model_name] = AutoTokenizer.from_pretrained(
+                        os.path.join(CACHE_DIR, MODEL_CONFIGS[model_name]["dir"]),
+                        trust_remote_code=True,
+                        local_files_only=True
+                    )
+                    
+                    _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
+                        os.path.join(CACHE_DIR, MODEL_CONFIGS[model_name]["dir"]),
+                        trust_remote_code=True,
+                        local_files_only=True
+                    )
+                    print("Model loaded successfully from cache")
+                except Exception as e:
+                    print(f"Error loading from cache: {str(e)}")
+                    raise
+            else:
+                print(f"Downloading model {model_name} to {CACHE_DIR}")
+                # Download model and tokenizer
                 _tokenizers[model_name] = AutoTokenizer.from_pretrained(
                     model_name,
                     trust_remote_code=True,
-                    cache_dir=CACHE_DIR,
-                    local_files_only=True  # Try to load from cache first
+                    cache_dir=CACHE_DIR
                 )
-            
-            # Then load model
-            try:
-                # First try loading from cache
-                _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
-                    model_name,
-                    trust_remote_code=True,
-                    cache_dir=CACHE_DIR,
-                    local_files_only=True
-                )
-            except Exception:
-                # If not in cache, download and save
-                print(f"Downloading model {model_name} to {CACHE_DIR}")
+                
                 _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
                     model_name,
                     trust_remote_code=True,
                     cache_dir=CACHE_DIR
                 )
+                print("Model downloaded and loaded successfully")
             
             if torch.cuda.is_available():
                 _models[model_name] = _models[model_name].to("cuda")
@@ -66,9 +94,9 @@ def get_model_and_tokenizer(model_name):
         clear_cuda_cache()
         raise Exception(f"Error loading model: {str(e)}")
 
-def translate_text(input_text, source_lang, target_lang, max_length=512):  # Reduced default max_length
+def translate_text(input_text, source_lang, target_lang):
     """
-    Translates text from source language to target language.
+    Translates text from source language to target language without length restrictions.
     """
     try:
         # Select appropriate model based on language direction
@@ -81,37 +109,25 @@ def translate_text(input_text, source_lang, target_lang, max_length=512):  # Red
         model, tokenizer = get_model_and_tokenizer(model_name)
         processor = IndicProcessor(inference=True)
         
-        # Process input in chunks if too long
-        if len(input_text) > max_length:
-            # Simple sentence splitting
-            sentences = input_text.split('।' if source_lang != 'eng_Latn' else '.')
-            chunks = []
-            current_chunk = ''
-            
-            for sentence in sentences:
-                if len(current_chunk) + len(sentence) < max_length:
-                    current_chunk += sentence + ('।' if source_lang != 'eng_Latn' else '.')
-                else:
-                    if current_chunk:
-                        chunks.append(current_chunk)
-                    current_chunk = sentence + ('।' if source_lang != 'eng_Latn' else '.')
-            if current_chunk:
-                chunks.append(current_chunk)
-        else:
-            chunks = [input_text]
+        # Split text into sentences
+        sentence_end = '।' if source_lang != 'eng_Latn' else '.'
+        sentences = input_text.split(sentence_end)
+        sentences = [s + sentence_end for s in sentences if s.strip()]
         
-        translated_chunks = []
-        for chunk in chunks:
-            # Process chunk
-            batch = processor.preprocess_batch([chunk], src_lang=source_lang, tgt_lang=target_lang)
+        translated_sentences = []
+        for sentence in sentences:
+            if not sentence.strip():
+                continue
+                
+            # Process sentence
+            batch = processor.preprocess_batch([sentence], src_lang=source_lang, tgt_lang=target_lang)
             
-            # Tokenize
+            # Tokenize without length restriction
             inputs = tokenizer(
                 batch,
-                truncation=True,
+                truncation=False,
                 padding=True,
-                return_tensors="pt",
-                max_length=max_length
+                return_tensors="pt"
             )
             
             if torch.cuda.is_available():
@@ -122,7 +138,6 @@ def translate_text(input_text, source_lang, target_lang, max_length=512):  # Red
                 outputs = model.generate(
                     **inputs,
                     num_beams=5,
-                    max_length=max_length,
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id
                 )
@@ -130,12 +145,12 @@ def translate_text(input_text, source_lang, target_lang, max_length=512):  # Red
             # Decode translation
             with tokenizer.as_target_tokenizer():
                 translated = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-                translated_chunks.append(translated)
+                translated_sentences.append(translated)
             
-            clear_cuda_cache()  # Clear cache after each chunk
+            clear_cuda_cache()  # Clear cache after each sentence
         
-        # Join chunks and post-process
-        final_translation = ' '.join(translated_chunks)
+        # Join sentences and post-process
+        final_translation = ' '.join(translated_sentences)
         return processor.postprocess_batch([final_translation], lang=target_lang)[0]
         
     except Exception as e:
