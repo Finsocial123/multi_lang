@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit.processor import IndicProcessor
@@ -153,6 +154,9 @@ def translate_text(input_text, source_lang, target_lang):
         final_translation = ' '.join(translated_sentences)
         return processor.postprocess_batch([final_translation], lang=target_lang)[0]
         
+    except torch.cuda.OutOfMemoryError:
+        clear_cuda_cache()
+        raise HTTPException(status_code=500, detail="CUDA error: out of memory. Please try again with smaller input.")
     except Exception as e:
         clear_cuda_cache()
         raise Exception(f"Translation error: {str(e)}")
