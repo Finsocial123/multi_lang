@@ -1,99 +1,78 @@
-from fastapi import HTTPException
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit.processor import IndicProcessor
 import os
 import gc
+import shutil
 
-# Define model paths and required files
+# Define base model directory
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+# Define model configurations
 MODEL_CONFIGS = {
-    "ai4bharat/indictrans2-en-indic-1B": {
-        "dir": "indictrans2-en-indic-1B",
-        "files": ["config.json", "pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
-    },
-    "ai4bharat/indictrans2-indic-en-1B": {
-        "dir": "indictrans2-indic-en-1B",
-        "files": ["config.json", "pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
-    },
-    "ai4bharat/indictrans2-indic-indic-1B": {
-        "dir": "indictrans2-indic-indic-1B",
-        "files": ["config.json", "pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
-    }
+    "ai4bharat/indictrans2-en-indic-1B": "en-indic",
+    "ai4bharat/indictrans2-indic-en-1B": "indic-en",
+    "ai4bharat/indictrans2-indic-indic-1B": "indic-indic"
 }
-
-CACHE_DIR = os.path.join(os.path.dirname(__file__), "model_cache")
-os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Cache for loaded models and tokenizers
 _models = {}
 _tokenizers = {}
 
-def is_model_cached(model_name):
-    """Check if all required model files exist in cache"""
-    model_dir = os.path.join(CACHE_DIR, MODEL_CONFIGS[model_name]["dir"])
-    if not os.path.exists(model_dir):
-        return False
+def get_model_dir(model_name):
+    """Get the directory path for a specific model"""
+    return os.path.join(MODEL_DIR, MODEL_CONFIGS[model_name])
+
+def is_model_downloaded(model_name):
+    """Check if model files exist locally"""
+    model_dir = get_model_dir(model_name)
+    return os.path.exists(model_dir) and any(f.endswith('.bin') for f in os.listdir(model_dir))
+
+def download_and_save_model(model_name):
+    """Download model and save to local directory"""
+    print(f"Downloading model {model_name}...")
+    model_dir = get_model_dir(model_name)
     
-    for file in MODEL_CONFIGS[model_name]["files"]:
-        if not os.path.exists(os.path.join(model_dir, file)):
-            return False
-    return True
+    # Download and save tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    tokenizer.save_pretrained(model_dir)
+    
+    # Download and save model
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True)
+    model.save_pretrained(model_dir)
+    
+    print(f"Model saved to {model_dir}")
+    return model, tokenizer
+
+def get_model_and_tokenizer(model_name):
+    """Load model and tokenizer from local directory or download if not exists"""
+    try:
+        if model_name not in _models:
+            clear_cuda_cache()
+            
+            model_dir = get_model_dir(model_name)
+            
+            if is_model_downloaded(model_name):
+                print(f"Loading model from {model_dir}")
+                _tokenizers[model_name] = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+                _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(model_dir, trust_remote_code=True)
+            else:
+                _models[model_name], _tokenizers[model_name] = download_and_save_model(model_name)
+            
+            if torch.cuda.is_available():
+                _models[model_name] = _models[model_name].to("cuda")
+                
+        return _models[model_name], _tokenizers[model_name]
+    except Exception as e:
+        clear_cuda_cache()
+        raise Exception(f"Error loading model: {str(e)}")
 
 def clear_cuda_cache():
     """Clear CUDA cache and garbage collect"""
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     gc.collect()
-
-def get_model_and_tokenizer(model_name):
-    """Load and cache model and tokenizer"""
-    try:
-        if model_name not in _models:
-            clear_cuda_cache()  # Clear cache before loading new model
-            
-            if is_model_cached(model_name):
-                print(f"Loading model from cache: {CACHE_DIR}")
-                # Load from cache
-                try:
-                    _tokenizers[model_name] = AutoTokenizer.from_pretrained(
-                        os.path.join(CACHE_DIR, MODEL_CONFIGS[model_name]["dir"]),
-                        trust_remote_code=True,
-                        local_files_only=True
-                    )
-                    
-                    _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
-                        os.path.join(CACHE_DIR, MODEL_CONFIGS[model_name]["dir"]),
-                        trust_remote_code=True,
-                        local_files_only=True
-                    )
-                    print("Model loaded successfully from cache")
-                except Exception as e:
-                    print(f"Error loading from cache: {str(e)}")
-                    raise
-            else:
-                print(f"Downloading model {model_name} to {CACHE_DIR}")
-                # Download model and tokenizer
-                _tokenizers[model_name] = AutoTokenizer.from_pretrained(
-                    model_name,
-                    trust_remote_code=True,
-                    cache_dir=CACHE_DIR
-                )
-                
-                _models[model_name] = AutoModelForSeq2SeqLM.from_pretrained(
-                    model_name,
-                    trust_remote_code=True,
-                    cache_dir=CACHE_DIR
-                )
-                print("Model downloaded and loaded successfully")
-            
-            if torch.cuda.is_available():
-                _models[model_name] = _models[model_name].to("cuda")
-                
-        return _models[model_name], _tokenizers[model_name]
-    
-    except Exception as e:
-        clear_cuda_cache()
-        raise Exception(f"Error loading model: {str(e)}")
 
 def translate_text(input_text, source_lang, target_lang):
     """
